@@ -1,7 +1,7 @@
 # codelore
 
 Code history you can ask questions of, powered by Meta's Muse models.
-Built during the Meta AI Developer Hackathon (Oct 27 – Nov 4, 2026). Everything in this
+Built during the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026). Everything in this
 folder is new hackathon work; the sibling folders in this repository predate the event.
 
 ## Demo features
