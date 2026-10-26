@@ -21,4 +21,4 @@ codelore = "codelore.cli:main"
 include = ["codelore*"]
 
 [tool.setuptools.package-data]
-codelore = ["static/*"]
+codelore = ["static/*", "static/vendor/*"]

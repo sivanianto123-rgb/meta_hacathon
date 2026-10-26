@@ -1,0 +1,16 @@
+[14:02] maya: checkout is throwing 500s for a bunch of users, anyone else seeing this?
+[14:03] pagerbot: ALERT checkout-api error rate > 5% for 5m (SEV2)
+[14:04] maya: ack, I'm on call. Looking at dashboards
+[14:06] li: p99 latency on checkout-api went from 300ms to 9s around 13:55
+[14:07] maya: db connections look pegged. pool at 10/10 on every pod
+[14:08] li: 10? we run with 50
+[14:09] rahul: deploy 812 went out at 13:52, it bumped the shared config lib to 3.0
+[14:11] li: 3.0 changed the default pool_size from 50 to 10. we never set it explicitly
+[14:12] maya: that would do it. and the client retries 3x on timeout so we're tripling load
+[14:13] sam: honestly Rahul should have caught this in review, the changelog mentions it
+[14:14] maya: let's keep it blameless please, the changelog line was buried. rolling back 812 now
+[14:19] maya: rollback done, pool back to 50
+[14:22] li: error rate dropping, p99 at 450ms
+[14:31] maya: error rate back under 0.5%. keeping incident open 30 more min
+[14:35] li: ~4,100 failed checkouts between 13:55 and 14:22 per payments dashboard
+[15:02] maya: resolving. postmortem owner: platform team

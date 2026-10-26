@@ -1,0 +1,18 @@
+2026-10-20T13:52:11Z INFO  deploy: checkout-api release 812 started (config-lib 2.7.1 -> 3.0.0)
+2026-10-20T13:53:40Z INFO  deploy: checkout-api release 812 healthy on 12/12 pods
+2026-10-20T13:54:02Z INFO  db.pool: initialized pool_size=10 max_overflow=0
+2026-10-20T13:55:13Z WARN  db.pool: checkout wait 1200ms (pool 10/10 in use)
+2026-10-20T13:55:14Z WARN  db.pool: checkout wait 1350ms (pool 10/10 in use)
+2026-10-20T13:55:16Z WARN  db.pool: checkout wait 1610ms (pool 10/10 in use)
+2026-10-20T13:56:02Z ERROR db.pool: TimeoutError: QueuePool limit of size 10 overflow 0 reached, connection timed out after 5000ms
+2026-10-20T13:56:02Z ERROR http: POST /checkout 500 (5012ms)
+2026-10-20T13:56:03Z WARN  client.retry: POST /checkout attempt 2/3 after timeout
+2026-10-20T13:56:04Z ERROR db.pool: TimeoutError: QueuePool limit of size 10 overflow 0 reached, connection timed out after 5000ms
+2026-10-20T13:56:09Z WARN  client.retry: POST /checkout attempt 3/3 after timeout
+2026-10-20T13:57:30Z ERROR db.pool: TimeoutError: QueuePool limit of size 10 overflow 0 reached, connection timed out after 5000ms
+2026-10-20T13:58:00Z ERROR http: POST /checkout 500 (5003ms)
+2026-10-20T14:01:45Z ERROR http: POST /checkout 500 (5008ms)
+2026-10-20T14:15:02Z INFO  deploy: checkout-api rollback to release 811 started
+2026-10-20T14:18:47Z INFO  deploy: checkout-api release 811 healthy on 12/12 pods
+2026-10-20T14:18:50Z INFO  db.pool: initialized pool_size=50 max_overflow=10
+2026-10-20T14:21:30Z INFO  http: POST /checkout 200 (412ms)

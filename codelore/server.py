@@ -97,6 +97,12 @@ def make_handler(app: App):
                 self._handle(lambda: app.heatmap(q.get("refresh") == "1", q.get("notes") == "1"))
             elif url.path == "/api/health":
                 self._send(200, {"repo": str(app.repo), "model": _model() is not None})
+            elif url.path.startswith("/static/vendor/") and url.path.endswith(".js"):
+                f = STATIC / "vendor" / Path(url.path).name  # .name blocks ../ traversal
+                if f.is_file():
+                    self._send(200, f.read_bytes(), "text/javascript; charset=utf-8")
+                else:
+                    self._send(404, {"error": "not found"})
             elif url.path in ("/", "/index.html"):
                 self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             else:
