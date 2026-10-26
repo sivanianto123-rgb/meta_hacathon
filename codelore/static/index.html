@@ -37,6 +37,7 @@ main { padding: 16px 20px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
 #treemap { width: 100%; height: 560px; position: relative; }
 #treemap .cell { position: absolute; overflow: hidden; border: 1px solid var(--bg); padding: 3px 5px; font-size: 11px; cursor: pointer; color: #111; }
+#treemap .dir { position: absolute; height: 12px; font-size: 10px; line-height: 12px; padding-left: 3px; color: var(--muted); overflow: hidden; white-space: nowrap; pointer-events: none; }
 #treemap .cell:hover { outline: 2px solid var(--accent); z-index: 2; }
 #treemap .cell.sole::after { content: "1"; position: absolute; top: 2px; right: 4px; font-weight: 700; }
 .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 8px; flex-wrap: wrap; }
@@ -80,6 +81,9 @@ body { overflow-x: hidden; }
     <div class="controls">
       <label style="margin:0;font-weight:500">Size by
         <select id="size-by"><option value="churn">lines changed</option><option value="commits">commits</option></select>
+      </label>
+      <label style="margin:0;font-weight:500">Show
+        <select id="kinds"><option value="code">source code</option><option value="code,test">code + tests</option><option value="code,test,config,docs">everything</option></select>
       </label>
       <button id="notes-btn">Add Muse Spark notes</button>
       <span id="heat-status" class="muted"></span>
@@ -136,9 +140,9 @@ function riskColor(r) {
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
-async function loadHeat(params = "") {
+async function loadHeat(extra = "") {
   $("#heat-status").textContent = "Analyzing history…";
-  const r = await fetch("/api/heatmap" + params);
+  const r = await fetch(`/api/heatmap?kinds=${$("#kinds").value}${extra}`);
   heat = await r.json();
   if (!r.ok) { $("#heat-status").textContent = heat.error; return; }
   $("#repo-name").textContent = `${heat.repo} · since ${heat.since} · ${heat.files.length} files`;
@@ -163,6 +167,13 @@ function draw() {
   }
   const h = d3.hierarchy(root).sum((d) => d.file ? Math.max(1, d.file[sizeBy]) : 0).sort((a, b) => b.value - a.value);
   d3.treemap().size([el.clientWidth, el.clientHeight]).paddingInner(1).paddingTop((d) => d.depth ? 12 : 0).round(true)(h);
+  for (const dir of h.descendants().filter((d) => d.depth > 0 && d.children && d.x1 - d.x0 > 40)) {
+    const l = document.createElement("div");
+    l.className = "dir";
+    Object.assign(l.style, { left: dir.x0 + "px", top: dir.y0 + "px", width: dir.x1 - dir.x0 + "px" });
+    l.textContent = dir.data.name + "/";
+    el.appendChild(l);
+  }
   for (const leaf of h.leaves()) {
     const f = leaf.data.file;
     const c = document.createElement("div");
@@ -197,7 +208,8 @@ function showFile(f) {
 }
 
 $("#size-by").onchange = draw;
-$("#notes-btn").onclick = () => loadHeat("?refresh=1&notes=1");
+$("#notes-btn").onclick = () => loadHeat("&refresh=1&notes=1");
+$("#kinds").onchange = () => loadHeat();
 window.addEventListener("resize", () => heat && draw());
 
 $("#pm-go").onclick = async () => {

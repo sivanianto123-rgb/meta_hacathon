@@ -28,24 +28,27 @@ class App:
         self.repo = repo
         self.since = since
         self.fetch_prs = fetch_prs
-        self._heat_cache: dict | None = None
+        self._heat_cache: dict[tuple, dict] = {}
         self._lock = threading.Lock()
 
-    def heatmap(self, refresh: bool, notes: bool) -> dict:
+    def heatmap(self, refresh: bool, notes: bool, kinds: tuple[str, ...]) -> dict:
+        unknown = set(kinds) - set(heatmap.KINDS)
+        if unknown:
+            raise ValueError(f"unknown file kinds: {', '.join(sorted(unknown))}")
         with self._lock:
-            if self._heat_cache is None or refresh:
-                files = heatmap.analyze(str(self.repo), since=self.since)
+            if kinds not in self._heat_cache or refresh:
+                files = heatmap.analyze(str(self.repo), since=self.since, kinds=kinds)
                 error = None
                 model = _model() if notes else None
                 if notes:
                     error = heatmap.add_notes(files, model) if model else "Model not configured; notes skipped."
-                self._heat_cache = {
+                self._heat_cache[kinds] = {
                     "repo": self.repo.name,
                     "since": self.since,
                     "files": heatmap.to_json(files),
                     "notes_error": error,
                 }
-            return self._heat_cache
+            return self._heat_cache[kinds]
 
     def why(self, path: str, line: int) -> dict:
         resolved = (self.repo / path).resolve()
@@ -94,7 +97,9 @@ def make_handler(app: App):
             if url.path == "/api/why":
                 self._handle(lambda: app.why(q["path"], int(q["line"])))
             elif url.path == "/api/heatmap":
-                self._handle(lambda: app.heatmap(q.get("refresh") == "1", q.get("notes") == "1"))
+                self._handle(lambda: app.heatmap(
+                    q.get("refresh") == "1", q.get("notes") == "1", tuple(q.get("kinds", "code").split(","))
+                ))
             elif url.path == "/api/health":
                 self._send(200, {"repo": str(app.repo), "model": _model() is not None})
             elif url.path.startswith("/static/vendor/") and url.path.endswith(".js"):

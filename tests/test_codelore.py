@@ -162,3 +162,17 @@ def test_parse_json_reply_variants():
 
 def test_strip_unknown_citations():
     assert strip_unknown_citations("x [C1] y [C7]", {"C1"}) == ("x [C1] y ", ["C7"])
+
+
+def test_file_kind_buckets():
+    k = heatmap.file_kind
+    assert [k("src/app.py"), k("tests/test_app.py"), k(".github/workflows/ci.yml"), k("docs/index.md")] == [
+        "code", "test", "config", "docs"]
+
+
+def test_heatmap_kind_filter(repo):
+    from conftest import commit
+    commit(repo, "tests/test_billing.py", "def test_x(): pass\n", "fix flaky test", date="2026-03-05T10:00:00Z")
+    code_only = {f.path for f in heatmap.analyze(str(repo), since="2 years ago", now=NOW)}
+    with_tests = {f.path for f in heatmap.analyze(str(repo), since="2 years ago", kinds=("code", "test"), now=NOW)}
+    assert "tests/test_billing.py" not in code_only and "tests/test_billing.py" in with_tests

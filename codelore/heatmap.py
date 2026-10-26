@@ -30,9 +30,30 @@ MIN_COMMITS_FOR_OWNERSHIP = 3
 STALE_OWNER_DAYS = 90
 
 
+KINDS = ("code", "test", "config", "docs")
+DOC_EXT = (".md", ".rst", ".txt", ".adoc")
+CONFIG_EXT = (".yml", ".yaml", ".toml", ".json", ".cfg", ".ini", ".lock", ".vim", ".in")
+CONFIG_NAMES = {"Dockerfile", "Makefile", ".gitignore", ".pre-commit-config.yaml", "tox.ini", "noxfile.py", "setup.cfg"}
+
+
+def file_kind(path: str) -> str:
+    """Rough bucket so the map can default to source code instead of CI and docs churn."""
+    name = path.rsplit("/", 1)[-1]
+    parts = path.split("/")
+    if parts[0] in (".github", ".circleci", ".gitlab") or name in CONFIG_NAMES or name.endswith(CONFIG_EXT):
+        return "config"
+    if parts[0] in ("docs", "doc") or name.endswith(DOC_EXT) or name.isupper():
+        return "docs"
+    if (any(p in ("test", "tests", "testing", "__tests__") for p in parts[:-1])
+            or name.startswith("test_") or re.search(r"[._-](test|spec)\.[a-z]+$", name)):
+        return "test"
+    return "code"
+
+
 @dataclass
 class FileRisk:
     path: str
+    kind: str
     commits: int
     churn: int
     fix_commits: int
@@ -68,6 +89,7 @@ def analyze(
     repo: str,
     since: str = "12 months ago",
     ignore: list[str] | None = None,
+    kinds: tuple[str, ...] = ("code",),
     now: datetime | None = None,
 ) -> list[FileRisk]:
     now = now or datetime.now(timezone.utc)
@@ -87,7 +109,7 @@ def analyze(
 
     files: list[FileRisk] = []
     for path, file_changes in changes.items():
-        if path not in tracked or _ignored(path, patterns):
+        if path not in tracked or _ignored(path, patterns) or file_kind(path) not in kinds:
             continue
         by_author: dict[str, int] = {}
         shas: set[str] = set()
@@ -112,6 +134,7 @@ def analyze(
         files.append(
             FileRisk(
                 path=path,
+                kind=file_kind(path),
                 commits=len(shas),
                 churn=sum(ch.added + ch.deleted for ch in file_changes),
                 fix_commits=len(fix_shas),

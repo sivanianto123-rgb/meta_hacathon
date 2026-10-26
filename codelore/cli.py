@@ -45,7 +45,7 @@ def cmd_why(args) -> int:
 
 def cmd_heatmap(args) -> int:
     repo = repo_root(args.repo)
-    files = heatmap.analyze(str(repo), since=args.since)
+    files = heatmap.analyze(str(repo), since=args.since, kinds=tuple(args.kinds.split(",")))
     if args.notes:
         model = _model_or_none()
         if model:
@@ -106,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     h = sub.add_parser("heatmap", help="rank files by risk and bus factor")
     h.add_argument("--since", default="12 months ago")
+    h.add_argument("--kinds", default="code", help="comma list of code,test,config,docs (default: code)")
     h.add_argument("--top", type=int, default=25)
     h.add_argument("--notes", action="store_true", help="add model-written notes for the riskiest files")
     h.add_argument("--json", action="store_true")
