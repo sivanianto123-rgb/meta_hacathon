@@ -9,10 +9,9 @@ You need: **Python 3.10+**, **Git**, **VS Code**. Commands below are for a termi
 
 ```bash
 # 1. Get the code
-git clone https://github.com/sivanianto123-rgb/workspace.git
-cd workspace
-git checkout claude/magical-hawking-5grxoh
-pip install -e ./codelore
+git clone https://github.com/sivanianto123-rgb/meta_hacathon.git
+cd meta_hacathon
+pip install -e .
 
 # 2. Get the demo repository (Black, the Python formatter)
 git clone https://github.com/psf/black.git ~/black
@@ -32,7 +31,7 @@ Leave that terminal running. Open http://127.0.0.1:8765 for the dashboard.
 
 ### Try the VS Code hover
 
-1. In VS Code: **File → Open Folder…** and pick `workspace/codelore/vscode`.
+1. In VS Code: **File → Open Folder…** and pick `meta_hacathon/vscode`.
 2. Press **F5**. A second VS Code window opens, titled "Extension Development Host".
 3. In that second window: **File → Open Folder…** and pick `~/black`.
 4. Open `src/black/linegen.py`, rest the mouse on any line for about a second.
