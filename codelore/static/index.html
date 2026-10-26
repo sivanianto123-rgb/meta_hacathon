@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codelore</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
+  --accent: #3b5bdb; --warn: #c2410c; --cold: #e8edf2; --hot: #d9480f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141414; --panel: #1d1d1c; --ink: #ecebe7; --muted: #9a9993; --line: #33322f;
+    --accent: #8ea2ff; --warn: #fb923c; --cold: #26303a; --hot: #ff6b35;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141414; --panel: #1d1d1c; --ink: #ecebe7; --muted: #9a9993; --line: #33322f;
+  --accent: #8ea2ff; --warn: #fb923c; --cold: #26303a; --hot: #ff6b35;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+header { display: flex; align-items: baseline; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 18px; }
+header .sub { color: var(--muted); }
+nav { display: flex; gap: 4px; margin-left: auto; }
+nav button { background: none; border: 1px solid var(--line); color: var(--ink); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+nav button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+main { padding: 16px 20px; }
+.hidden { display: none !important; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+#treemap { width: 100%; height: 560px; position: relative; }
+#treemap .cell { position: absolute; overflow: hidden; border: 1px solid var(--bg); padding: 3px 5px; font-size: 11px; cursor: pointer; color: #111; }
+#treemap .cell:hover { outline: 2px solid var(--accent); z-index: 2; }
+#treemap .cell.sole::after { content: "1"; position: absolute; top: 2px; right: 4px; font-weight: 700; }
+.legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 8px; flex-wrap: wrap; }
+.legend .bar { width: 120px; height: 10px; border-radius: 3px; }
+.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.controls button, .controls select { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+.flag { display: inline-block; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; font-size: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; }
+.toplist tr { cursor: pointer; }
+.toplist tr:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+textarea { width: 100%; min-height: 140px; font: 12px/1.4 ui-monospace, monospace; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+label { display: block; font-weight: 600; margin: 10px 0 4px; }
+.primary { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; cursor: pointer; margin-top: 10px; }
+.error { color: var(--warn); }
+.muted { color: var(--muted); }
+#pm-out { overflow-x: auto; }
+#pm-out table { margin: 8px 0; }
+code { font-family: ui-monospace, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>codelore</h1>
+  <span class="sub" id="repo-name"></span>
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" data-tab="heat">Heat map</button>
+    <button role="tab" aria-selected="false" data-tab="pm">Postmortem</button>
+  </nav>
+</header>
+<main>
+  <section id="tab-heat">
+    <div class="controls">
+      <label style="margin:0;font-weight:500">Size by
+        <select id="size-by"><option value="churn">lines changed</option><option value="commits">commits</option></select>
+      </label>
+      <button id="notes-btn">Add Muse Spark notes</button>
+      <span id="heat-status" class="muted"></span>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <div id="treemap"></div>
+        <div class="legend">
+          <span>low risk</span><span class="bar" id="legend-bar"></span><span>high risk</span>
+          <span>· <b>1</b> = bus factor of one</span>
+        </div>
+      </div>
+      <div>
+        <div class="panel" id="detail"><p class="muted">Click a file to see why it is risky.</p></div>
+        <div class="panel" style="margin-top:16px">
+          <b>Riskiest files</b>
+          <table class="toplist"><thead><tr><th>Risk</th><th>File</th><th>Bus</th></tr></thead><tbody id="toplist"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-pm" class="hidden">
+    <div class="grid">
+      <div class="panel">
+        <label for="pm-thread">Incident thread <span class="muted">(Slack export JSON or "[time] name: message" lines)</span></label>
+        <textarea id="pm-thread"></textarea>
+        <label for="pm-logs">Logs</label>
+        <textarea id="pm-logs"></textarea>
+        <label for="pm-transcript">Call transcript <span class="muted">(optional; the CLI can transcribe audio with Muse Voice Transcribe)</span></label>
+        <textarea id="pm-transcript" style="min-height:70px"></textarea>
+        <button class="primary" id="pm-go">Write postmortem</button>
+        <span id="pm-status" class="muted"></span>
+      </div>
+      <div class="panel" id="pm-checks"><p class="muted">Every claim in the draft must cite a thread line (T), log line (L) or transcript line (V). Claims without evidence and any blaming language are listed here.</p></div>
+    </div>
+    <div class="panel" id="pm-out" style="margin-top:16px"></div>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+let heat = null;
+
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  $("#tab-heat").classList.toggle("hidden", b.dataset.tab !== "heat");
+  $("#tab-pm").classList.toggle("hidden", b.dataset.tab !== "pm");
+}));
+
+function riskColor(r) {
+  const css = getComputedStyle(document.documentElement);
+  return d3.interpolateRgb(css.getPropertyValue("--cold").trim(), css.getPropertyValue("--hot").trim())(Math.pow(r / 100, 1.6));
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+async function loadHeat(params = "") {
+  $("#heat-status").textContent = "Analyzing history…";
+  const r = await fetch("/api/heatmap" + params);
+  heat = await r.json();
+  if (!r.ok) { $("#heat-status").textContent = heat.error; return; }
+  $("#repo-name").textContent = `${heat.repo} · since ${heat.since} · ${heat.files.length} files`;
+  $("#heat-status").textContent = heat.notes_error || "";
+  draw();
+}
+
+function draw() {
+  const el = $("#treemap");
+  el.innerHTML = "";
+  const sizeBy = $("#size-by").value;
+  const root = { name: "", children: [] };
+  for (const f of heat.files) {
+    let node = root;
+    const parts = f.path.split("/");
+    parts.slice(0, -1).forEach((p) => {
+      let next = node.children.find((c) => c.name === p && c.children);
+      if (!next) { next = { name: p, children: [] }; node.children.push(next); }
+      node = next;
+    });
+    node.children.push({ name: parts.at(-1), file: f });
+  }
+  const h = d3.hierarchy(root).sum((d) => d.file ? Math.max(1, d.file[sizeBy]) : 0).sort((a, b) => b.value - a.value);
+  d3.treemap().size([el.clientWidth, el.clientHeight]).paddingInner(1).paddingTop((d) => d.depth ? 12 : 0).round(true)(h);
+  for (const leaf of h.leaves()) {
+    const f = leaf.data.file;
+    const c = document.createElement("div");
+    c.className = "cell" + (f.bus_factor === 1 && f.flags.some((x) => x.includes("knows this")) ? " sole" : "");
+    Object.assign(c.style, { left: leaf.x0 + "px", top: leaf.y0 + "px", width: leaf.x1 - leaf.x0 + "px", height: leaf.y1 - leaf.y0 + "px", background: riskColor(f.risk) });
+    c.title = `${f.path}\nrisk ${f.risk}`;
+    if (leaf.x1 - leaf.x0 > 50 && leaf.y1 - leaf.y0 > 16) c.textContent = leaf.data.name;
+    c.onclick = () => showFile(f);
+    el.appendChild(c);
+  }
+  $("#legend-bar").style.background = `linear-gradient(90deg, ${riskColor(0)}, ${riskColor(100)})`;
+  $("#toplist").innerHTML = heat.files.slice(0, 12).map((f, i) =>
+    `<tr data-i="${i}"><td>${f.risk.toFixed(0)}</td><td><code>${esc(f.path)}</code></td><td>${f.bus_factor}</td></tr>`).join("");
+  document.querySelectorAll("#toplist tr").forEach((tr) => tr.onclick = () => showFile(heat.files[+tr.dataset.i]));
+}
+
+function showFile(f) {
+  $("#detail").innerHTML = `
+    <b><code>${esc(f.path)}</code></b>
+    <div style="margin:6px 0">${f.flags.map((x) => `<span class="flag">${esc(x)}</span>`).join("") || '<span class="muted">no flags</span>'}</div>
+    ${f.note ? `<p>${esc(f.note)}</p>` : ""}
+    <table>
+      <tr><th>Risk score</th><td>${f.risk}</td></tr>
+      <tr><th>Commits / lines changed</th><td>${f.commits} / ${f.churn}</td></tr>
+      <tr><th>Bug-fix commits</th><td>${f.fix_commits}</td></tr>
+      <tr><th>Authors</th><td>${f.authors}</td></tr>
+      <tr><th>Top author</th><td>${esc(f.top_author)} (${Math.round(f.top_share * 100)}%)</td></tr>
+      <tr><th>Bus factor</th><td>${f.bus_factor}</td></tr>
+      <tr><th>Owner last active</th><td>${f.owner_last_active_days == null ? "—" : f.owner_last_active_days + " days ago"}</td></tr>
+    </table>
+    ${f.recent_fixes.length ? `<p class="muted" style="margin-bottom:2px">Recent fixes</p><ul style="margin:0;padding-left:18px">${f.recent_fixes.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}`;
+}
+
+$("#size-by").onchange = draw;
+$("#notes-btn").onclick = () => loadHeat("?refresh=1&notes=1");
+window.addEventListener("resize", () => heat && draw());
+
+$("#pm-go").onclick = async () => {
+  $("#pm-status").textContent = "Drafting with Muse Spark…";
+  $("#pm-go").disabled = true;
+  try {
+    const r = await fetch("/api/postmortem", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread: $("#pm-thread").value, logs: $("#pm-logs").value, transcript: $("#pm-transcript").value }),
+    });
+    const out = await r.json();
+    if (!r.ok) { $("#pm-status").innerHTML = `<span class="error">${esc(out.error)}</span>`; return; }
+    $("#pm-status").textContent = "";
+    $("#pm-out").innerHTML = DOMPurify.sanitize(marked.parse(out.markdown));
+    const nr = out.needs_review.length, bf = out.blame_findings.length;
+    $("#pm-checks").innerHTML = `
+      <p><b>${nr}</b> claim(s) dropped for lack of evidence${nr ? ":" : "."}</p>
+      ${nr ? `<ul>${out.needs_review.map((n) => `<li>${esc(n.text || n.event || n.action)}</li>`).join("")}</ul>` : ""}
+      <p><b>${out.blame_rewrites}</b> sentence(s) rewritten in blameless language; <b>${bf}</b> warning(s) remain.</p>
+      ${bf ? `<ul>${out.blame_findings.map((f) => `<li><code>${esc(f.field)}</code>: ${esc([...f.phrases, ...f.names].join(", "))}</li>`).join("")}</ul>` : ""}
+      <button id="pm-copy">Copy markdown</button>`;
+    $("#pm-copy").onclick = () => navigator.clipboard.writeText(out.markdown);
+  } finally { $("#pm-go").disabled = false; }
+};
+
+loadHeat();
+</script>
+</body>
+</html>

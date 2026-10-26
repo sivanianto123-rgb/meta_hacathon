@@ -1,0 +1,26 @@
+{
+  "name": "codelore",
+  "displayName": "codelore — Why is this here?",
+  "description": "Hover any line to see the story behind it, from git history and pull requests, narrated by Meta's Muse Spark.",
+  "version": "0.1.0",
+  "publisher": "codelore",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "codelore.why", "title": "codelore: Why is this line here?" },
+      { "command": "codelore.openDashboard", "title": "codelore: Open heat map dashboard" }
+    ],
+    "configuration": {
+      "title": "codelore",
+      "properties": {
+        "codelore.serverUrl": { "type": "string", "default": "http://127.0.0.1:8765", "description": "URL of `codelore serve`." },
+        "codelore.hover": { "type": "boolean", "default": true, "description": "Show the story on hover." },
+        "codelore.hoverDelayMs": { "type": "number", "default": 600, "description": "Only fetch after the pointer rests this long, to avoid a model call per mouse move." }
+      }
+    }
+  }
+}

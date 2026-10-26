@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codelore"
+version = "0.1.0"
+description = "Code history you can ask questions of: line stories, risk heat maps and blameless postmortems, powered by Meta's Muse models."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["requests>=2.28"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+codelore = "codelore.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["codelore*"]
+
+[tool.setuptools.package-data]
+codelore = ["static/*"]
