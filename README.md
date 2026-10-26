@@ -33,5 +33,5 @@ codelore postmortem --thread thread.txt --logs app.log --out postmortem.md
 codelore --repo path/to/repo serve        # dashboard at http://127.0.0.1:8765
 ```
 
-VS Code: open `vscode/` in VS Code and press F5 with `codelore serve` running.
+Step-by-step setup and the demo video script: see [DEMO.md](DEMO.md).
 Set `GITHUB_TOKEN` for higher GitHub API limits when fetching PR context.
