@@ -176,3 +176,27 @@ def test_heatmap_kind_filter(repo):
     code_only = {f.path for f in heatmap.analyze(str(repo), since="2 years ago", now=NOW)}
     with_tests = {f.path for f in heatmap.analyze(str(repo), since="2 years ago", kinds=("code", "test"), now=NOW)}
     assert "tests/test_billing.py" not in code_only and "tests/test_billing.py" in with_tests
+
+
+def test_log_dedup_keeps_lines_that_differ_in_meaningful_numbers():
+    raw = "\n".join([
+        "2026-10-20T13:54:02Z INFO db.pool: initialized pool_size=10",
+        "2026-10-20T14:18:50Z INFO db.pool: initialized pool_size=50",
+        "2026-10-20T13:56:02Z ERROR timed out after 5000ms",
+        "2026-10-20T13:57:30Z ERROR timed out after 5003ms",
+    ])
+    lines, _ = postmortem.select_log_lines(raw)
+    assert len(lines) == 3
+    assert any("pool_size=50" in l for l in lines)
+    assert lines[2].endswith("(repeated x2)")
+
+
+def test_blameless_is_not_blame_language():
+    assert not postmortem.BLAME_RE.search("The team kept the discussion blameless.")
+    assert postmortem.BLAME_RE.search("Ops blamed the cache.")
+
+
+def test_timeline_times_are_shortened():
+    assert postmortem._short_time("2026-10-20T13:52:11Z") == "13:52:11"
+    assert postmortem._short_time("14:02") == "14:02"
+    assert postmortem._short_time(None) == "—"

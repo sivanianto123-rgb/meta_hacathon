@@ -25,7 +25,7 @@ THREAD_LINE = re.compile(r"^\s*(?:\[(?P<ts>[^\]]+)\]\s*)?(?P<who>[\w .@'-]{1,40}
 
 BLAME_PATTERNS = [
     r"human error", r"should have", r"shouldn'?t have", r"failed to", r"careless", r"negligen\w*",
-    r"\bfault\b", r"\bblame\w*", r"forgot to", r"didn'?t bother", r"mistake (by|of)", r"\bincompeten\w*",
+    r"\bfault\b", r"\bblam(e|ed|es|ing)\b", r"forgot to", r"didn'?t bother", r"mistake (by|of)", r"\bincompeten\w*",
     r"\bsloppy\b", r"\blazy\b", r"\bdropped the ball\b",
 ]
 BLAME_RE = re.compile("|".join(BLAME_PATTERNS), re.IGNORECASE)
@@ -92,8 +92,20 @@ def parse_thread(raw: str) -> list[tuple[str | None, str | None, str]]:
     return msgs
 
 
+VOLATILE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|us|µs|s)\b|\b[0-9a-f]{8,}\b|\b\d{6,}\b", re.IGNORECASE)
+
+
+def _line_shape(line: str) -> str:
+    """A line with its timestamp, durations and ids masked, used to spot repeats."""
+    body = LOG_TIME.sub("", line, count=1).lstrip()
+    if body.startswith("UTC "):
+        body = body[4:]
+    return VOLATILE.sub("#", body)
+
+
 def select_log_lines(raw: str) -> tuple[list[str], int]:
-    """Keep signal lines (warnings, errors, timeouts), collapsing repeats that differ only in numbers."""
+    """Keep signal lines (warnings, errors, timeouts), collapsing repeats that differ only in timestamps,
+    durations or ids. Other numbers (pool sizes, release numbers, status codes) keep lines distinct."""
     lines = [l.rstrip() for l in raw.splitlines() if l.strip()]
     if len(lines) > MAX_LOG_LINES:
         lines = [l for l in lines if LOG_SIGNAL.search(l)]
@@ -101,7 +113,7 @@ def select_log_lines(raw: str) -> tuple[list[str], int]:
     counts: dict[str, int] = {}
     index: dict[str, int] = {}
     for l in lines:
-        shape = re.sub(r"\d+", "#", l.split(" ", 2)[-1] if l[:4].isdigit() else l)
+        shape = _line_shape(l)
         if shape in index:
             counts[shape] += 1
             continue
@@ -261,6 +273,17 @@ def write(inp: Inputs, model: ChatModel) -> dict:
     }
 
 
+ISO_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}[T ](\d{2}:\d{2}(?::\d{2})?)")
+
+
+def _short_time(t) -> str:
+    """Show '2026-10-20T13:52:11Z' as '13:52:11' so log and chat times line up in the timeline."""
+    if not t:
+        return "—"
+    m = ISO_TIME.match(str(t))
+    return m.group(1) if m else str(t)
+
+
 def _cite(sources: list[str]) -> str:
     return " " + "".join(f"[{s}]" for s in sources) if sources else ""
 
@@ -275,7 +298,7 @@ def render_markdown(draft: dict, needs_review: list[dict], findings: list[dict],
     md += ["## Timeline", "", "| Time | Event | Sources |", "|---|---|---|"]
     for t in draft.get("timeline", []):
         event = str(t.get("event", "")).replace("|", "\\|")
-        md.append(f"| {t.get('time') or '—'} | {event} | {', '.join(t['sources'])} |")
+        md.append(f"| {_short_time(t.get('time'))} | {event} | {', '.join(t['sources'])} |")
     rc = draft.get("root_cause") or {}
     md += ["", "## Root cause", rc.get("text", "") + _cite(rc.get("sources", [])), ""]
     for title, key in (("Contributing factors", "contributing_factors"), ("What went well", "what_went_well")):
