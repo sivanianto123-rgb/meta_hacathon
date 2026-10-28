@@ -59,7 +59,7 @@ class App:
     def postmortem(self, body: dict) -> dict:
         model = _model()
         if model is None:
-            raise LLMNotConfigured("Set META_API_KEY and META_API_BASE to write postmortems")
+            raise LLMNotConfigured("Set META_API_KEY to write postmortems")
         transcript = body.get("transcript", "")
         inp = postmortem.build_inputs(body.get("thread", ""), body.get("logs", ""), transcript)
         return postmortem.write(inp, model)

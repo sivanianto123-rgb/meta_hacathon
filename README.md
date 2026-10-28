@@ -37,7 +37,7 @@ ids. Anything it can't back up is stripped or set aside for a human to review.
 
 ```bash
 pip install -e .
-export META_API_KEY=... META_API_BASE=...   # model defaults to muse-spark-1.3
+export META_API_KEY=...   # uses https://api.meta.ai/v1 and muse-spark-1.3 by default
 codelore --repo path/to/repo heatmap
 codelore --repo path/to/repo why src/app.py:120
 codelore postmortem --thread examples/checkout-outage/thread.txt \

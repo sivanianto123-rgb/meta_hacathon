@@ -3,7 +3,7 @@
 Configuration comes from the environment so no key ever lands in the repo:
 
     META_API_KEY            required
-    META_API_BASE           required, e.g. the base URL shown in the Meta Model API docs
+    META_API_BASE           API base URL (default: https://api.meta.ai/v1)
     META_MODEL              chat model id (default: muse-spark-1.3)
     META_TRANSCRIBE_MODEL   transcription model id (default: muse-voice-transcribe-1.0)
 
@@ -23,6 +23,7 @@ from typing import Protocol
 import requests
 
 
+DEFAULT_BASE = "https://api.meta.ai/v1"
 DEFAULT_MODEL = "muse-spark-1.3"
 DEFAULT_TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
 
@@ -49,12 +50,11 @@ class MetaClient:
 
     @classmethod
     def from_env(cls) -> "MetaClient":
-        missing = [k for k in ("META_API_KEY", "META_API_BASE") if not os.environ.get(k)]
-        if missing:
-            raise LLMNotConfigured(f"Set {', '.join(missing)} to use the Meta Model API")
+        if not os.environ.get("META_API_KEY"):
+            raise LLMNotConfigured("Set META_API_KEY to use the Meta Model API")
         return cls(
             api_key=os.environ["META_API_KEY"],
-            base_url=os.environ["META_API_BASE"].rstrip("/"),
+            base_url=os.environ.get("META_API_BASE", DEFAULT_BASE).rstrip("/"),
             model=os.environ.get("META_MODEL", DEFAULT_MODEL),
             transcribe_model=os.environ.get("META_TRANSCRIBE_MODEL", DEFAULT_TRANSCRIBE_MODEL),
         )
