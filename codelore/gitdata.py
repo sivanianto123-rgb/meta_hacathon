@@ -86,8 +86,10 @@ def _parse_commits(raw: str) -> list[Commit]:
     return commits
 
 
-def line_history(repo: str | Path, path: str, line: int, max_commits: int = 12) -> list[Commit]:
-    """Commits that shaped `line` of `path`, newest first (git log -L follows moves within the file)."""
+def line_history(
+    repo: str | Path, path: str, line: int, max_commits: int = 12, rev: str = "HEAD"
+) -> list[Commit]:
+    """Commits that shaped `line` of `path` as of `rev`, newest first (git log -L follows moves within the file)."""
     raw = run_git(
         repo,
         "log",
@@ -95,8 +97,37 @@ def line_history(repo: str | Path, path: str, line: int, max_commits: int = 12) 
         "-s",
         f"--max-count={max_commits}",
         f"--format={_COMMIT_FMT}",
+        rev,
     )
     return _parse_commits(raw)
+
+
+_HUNK = re.compile(r"^@@ -0,0 \+(\d+)", re.MULTILINE)
+
+
+def line_origin(repo: str | Path, path: str, line: int, rev: str = "HEAD") -> tuple[str, str, int] | None:
+    """If `line` arrived when its file was created (a move or split), find where it came from.
+
+    Returns (origin_sha, origin_path, origin_line) in another file, or None when the line was written
+    in place. git log -L stops at file creation; blame -C -C -C at that commit looks across files.
+    """
+    raw = run_git(repo, "log", f"-L{line},{line}:{path}", "--format=>>%H", rev)
+    shas = re.findall(r"^>>([0-9a-f]{40})", raw, re.MULTILINE)
+    created = _HUNK.findall(raw.rsplit(">>", 1)[-1]) if shas else []
+    if not created:
+        return None  # oldest commit modified an existing file, so the line was written here
+    first_sha, first_line = shas[-1], int(created[-1])
+    try:
+        # Lower copy threshold than git's default (40 chars) so short moved lines are still traced.
+        blame = run_git(repo, "blame", "-C15", "-C15", "-C15", "-w", "--porcelain",
+                        f"-L{first_line},{first_line}", first_sha, "--", path)
+    except GitError:
+        return None
+    header = re.match(r"([0-9a-f]{40}) (\d+)", blame)
+    origin_file = re.search(r"^filename (.+)$", blame, re.MULTILINE)
+    if not header or not origin_file or origin_file.group(1) == path:
+        return None
+    return header.group(1), origin_file.group(1), int(header.group(2))
 
 
 def read_lines(repo: str | Path, path: str, center: int, radius: int = 6) -> tuple[int, list[str]]:

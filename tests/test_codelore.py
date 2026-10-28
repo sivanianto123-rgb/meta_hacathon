@@ -200,3 +200,24 @@ def test_timeline_times_are_shortened():
     assert postmortem._short_time("2026-10-20T13:52:11Z") == "13:52:11"
     assert postmortem._short_time("14:02") == "14:02"
     assert postmortem._short_time(None) == "—"
+
+
+def test_why_follows_line_across_file_split(repo):
+    from conftest import RAHUL, BOB, commit, git
+    body = "".join(f"def helper_{i}(x):\n    return x + {i}  # careful arithmetic {i}\n\n" for i in range(8))
+    commit(repo, "core.py", body, "Add helpers to stop rounding drift (#7)", date="2026-04-01T10:00:00Z", **RAHUL)
+    (repo / "core.py").write_text("from helpers import *\n")
+    (repo / "helpers.py").write_text(body)
+    git(repo, "add", "core.py", "helpers.py", **BOB)
+    git(repo, "commit", "-q", "-m", "Split helpers into their own module", **BOB)
+
+    origin = gitdata.line_origin(repo, "helpers.py", 5)
+    assert origin is not None and origin[1] == "core.py" and origin[2] == 5
+    result = why.explain(str(repo), "helpers.py", 5, model=None, fetch_prs=False)
+    titles = [e["title"] for e in result["evidence"]]
+    assert titles[0] == "Split helpers into their own module"
+    assert titles[1].startswith("Add helpers to stop rounding drift (#7) (in core.py")
+
+
+def test_line_origin_none_for_lines_written_in_place(repo):
+    assert gitdata.line_origin(repo, "billing.py", 2) is None

@@ -22,6 +22,9 @@ Rules:
 Reply with JSON only: {"summary": "...", "story": "..."}"""
 
 
+MAX_MOVES = 3
+
+
 @dataclass
 class Evidence:
     id: str
@@ -36,6 +39,19 @@ class Evidence:
 def gather(repo: str, path: str, line: int, slug: str | None, fetch_prs: bool = True) -> tuple[int, list[str], list[Evidence]]:
     start, code = gitdata.read_lines(repo, path, line)
     commits = gitdata.line_history(repo, path, line)
+    # Follow the line back through file moves and splits so the story doesn't stop at a refactor.
+    seen = {c.sha for c in commits}
+    cur_path, cur_line, cur_rev = path, line, "HEAD"
+    for _ in range(MAX_MOVES):
+        origin = gitdata.line_origin(repo, cur_path, cur_line, cur_rev)
+        if origin is None:
+            break
+        cur_rev, cur_path, cur_line = origin
+        older = [c for c in gitdata.line_history(repo, cur_path, cur_line, max_commits=6, rev=cur_rev) if c.sha not in seen]
+        for c in older:
+            c.subject = f"{c.subject} (in {cur_path}, before the code moved)"
+        commits += older
+        seen.update(c.sha for c in older)
     evidence: list[Evidence] = []
     seen_prs: set[int] = set()
     pr_queue: list[int] = []
