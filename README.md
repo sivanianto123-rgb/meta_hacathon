@@ -60,10 +60,11 @@ tests/         pytest suite (runs offline with a fake model)
 
 ## Status
 
-- Git analysis, heat map, server, dashboard, VS Code extension: working; `pytest` passes (18 tests).
-- **Model calls not yet verified against the live API**: waiting on hackathon API credits. The
-  request format in `codelore/llm.py` follows the OpenAI-compatible convention and will be checked
-  against the Meta Model API docs.
+- All three demo features run end to end against the live Meta Model API (`muse-spark-1.3`),
+  tested on [psf/black](https://github.com/psf/black)'s history and the sample incident in `examples/`.
+- `pytest` passes (23 tests, offline with a fake model).
+- Not yet tested: the VS Code extension inside VS Code, and audio transcription with
+  `muse-voice-transcribe-1.0`.
 
 ## License
 
