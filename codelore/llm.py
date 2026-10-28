@@ -4,11 +4,11 @@ Configuration comes from the environment so no key ever lands in the repo:
 
     META_API_KEY            required
     META_API_BASE           required, e.g. the base URL shown in the Meta Model API docs
-    META_MODEL              chat model id (a Muse Spark model)
-    META_TRANSCRIBE_MODEL   transcription model id (Muse Voice Transcribe)
+    META_MODEL              chat model id (default: muse-spark-1.3)
+    META_TRANSCRIBE_MODEL   transcription model id (default: muse-voice-transcribe-1.0)
 
-The request shapes follow the OpenAI-compatible chat/transcription convention.
-Check them against https://dev.meta.ai/products/meta-model-api before the demo.
+The Meta Model API is OpenAI SDK compatible, so requests use the chat/completions and
+audio/transcriptions shapes. Models and prices: https://dev.meta.ai/products/meta-model-api
 """
 
 from __future__ import annotations
@@ -21,6 +21,10 @@ from pathlib import Path
 from typing import Protocol
 
 import requests
+
+
+DEFAULT_MODEL = "muse-spark-1.3"
+DEFAULT_TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
 
 
 class LLMNotConfigured(RuntimeError):
@@ -45,14 +49,14 @@ class MetaClient:
 
     @classmethod
     def from_env(cls) -> "MetaClient":
-        missing = [k for k in ("META_API_KEY", "META_API_BASE", "META_MODEL") if not os.environ.get(k)]
+        missing = [k for k in ("META_API_KEY", "META_API_BASE") if not os.environ.get(k)]
         if missing:
             raise LLMNotConfigured(f"Set {', '.join(missing)} to use the Meta Model API")
         return cls(
             api_key=os.environ["META_API_KEY"],
             base_url=os.environ["META_API_BASE"].rstrip("/"),
-            model=os.environ["META_MODEL"],
-            transcribe_model=os.environ.get("META_TRANSCRIBE_MODEL"),
+            model=os.environ.get("META_MODEL", DEFAULT_MODEL),
+            transcribe_model=os.environ.get("META_TRANSCRIBE_MODEL", DEFAULT_TRANSCRIBE_MODEL),
         )
 
     def _headers(self) -> dict[str, str]:

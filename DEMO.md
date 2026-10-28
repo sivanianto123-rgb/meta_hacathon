@@ -19,8 +19,8 @@ git clone https://github.com/psf/black.git ~/black
 # 3. Your Meta Model API details (from the Meta developer dashboard; never commit these)
 export META_API_KEY="..."
 export META_API_BASE="..."          # API base URL from the docs
-export META_MODEL="..."             # Muse Spark model id
-export META_TRANSCRIBE_MODEL="..."  # Muse Voice Transcribe model id (optional)
+# Models default to muse-spark-1.3 and muse-voice-transcribe-1.0; override with META_MODEL /
+# META_TRANSCRIBE_MODEL (e.g. muse-spark-1.3-contributor is cheaper but your data helps train Meta's models)
 export GITHUB_TOKEN="..."           # optional: a GitHub token raises the PR lookup limit
 
 # 4. Start codelore pointed at Black
