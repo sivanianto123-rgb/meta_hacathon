@@ -21,11 +21,13 @@ MAX_THREAD_LINES = 250
 LOG_SIGNAL = re.compile(
     r"\b(WARN(ING)?|ERROR|ERR|FATAL|CRIT(ICAL)?|PANIC|Exception|Traceback|timed? ?out|refused|OOM|killed|5\d\d)\b"
 )
+# Lines from MetaClient.transcribe: "[mm:ss] Speaker A: text"
+VOICE_LINE = re.compile(r"^\s*\[(?P<ts>\d+:\d\d)\]\s*(?:(?P<who>Speaker [^:]{1,30}):)?\s*(?P<text>.+)$")
 THREAD_LINE = re.compile(r"^\s*(?:\[(?P<ts>[^\]]+)\]\s*)?(?P<who>[\w .@'-]{1,40}?):\s+(?P<text>.+)$")
 
 BLAME_PATTERNS = [
     r"human error", r"should have", r"shouldn'?t have", r"failed to", r"careless", r"negligen\w*",
-    r"\bfault\b", r"\bblame\w*", r"forgot to", r"didn'?t bother", r"mistake (by|of)", r"\bincompeten\w*",
+    r"\bfault\b", r"\bblam(?:e|ed|es|ing)\b(?!-free)", r"forgot to", r"didn'?t bother", r"mistake (by|of)", r"\bincompeten\w*",
     r"\bsloppy\b", r"\blazy\b", r"\bdropped the ball\b",
 ]
 BLAME_RE = re.compile("|".join(BLAME_PATTERNS), re.IGNORECASE)
@@ -128,9 +130,14 @@ def build_inputs(thread: str, logs: str = "", transcript: str = "") -> Inputs:
     for i, l in enumerate(log_lines, 1):
         m = LOG_TIME.search(l)
         inp.evidence.append(EvidenceLine(f"L{i}", "logs", m.group(1) if m else None, None, l))
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", transcript) if s.strip()]
-    for i, s in enumerate(sentences, 1):
-        inp.evidence.append(EvidenceLine(f"V{i}", "voice", None, None, s))
+    n = 0
+    for line in transcript.splitlines():
+        m = VOICE_LINE.match(line)
+        ts, who, text = (f"call +{m.group('ts')}", m.group("who"), m.group("text")) if m else (None, None, line)
+        for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+            if sentence.strip():
+                n += 1
+                inp.evidence.append(EvidenceLine(f"V{n}", "voice", ts, who, sentence.strip()))
     return inp
 
 
@@ -142,10 +149,12 @@ Rules:
 - Blameless: describe systems, processes and decisions, never individual fault. Do not write "human error",
   "should have", "failed to", "forgot", "careless". Refer to people by role (on-call engineer, DB owner),
   not by name.
-- Times: copy them from the evidence; do not invent times. Use "time": null if unknown.
+- Times: copy them from the evidence; do not invent times. Use "time": null if unknown. Call transcript
+  times ("call +mm:ss") are offsets from the start of the call, not clock times: never put them in "time".
+- Impact: state only what the evidence shows (duration, failed requests, affected users) and cite it.
 - Action items are concrete and checkable; owner is a team or role, not a person.
 Reply with JSON only, in this shape:
-{"title": str, "summary": str, "impact": str, "severity": "SEV1"|"SEV2"|"SEV3"|"unknown",
+{"title": str, "summary": str, "impact": {"text": str, "sources": [ids]}, "severity": "SEV1"|"SEV2"|"SEV3"|"unknown",
  "detection": {"text": str, "sources": [ids]},
  "timeline": [{"time": str|null, "event": str, "sources": [ids]}],
  "root_cause": {"text": str, "sources": [ids]},
@@ -185,7 +194,9 @@ def validate(draft: dict, known: set[str]) -> tuple[dict, list[dict]]:
             else:
                 needs_review.append({"section": key, **item})
         draft[key] = kept
-    for key in ("root_cause", "detection"):
+    if isinstance(draft.get("impact"), str):  # older reply shape: impact as plain text
+        draft["impact"] = {"text": draft["impact"], "sources": []}
+    for key in ("impact", "root_cause", "detection"):
         item = draft.get(key)
         if isinstance(item, dict):
             item["sources"] = _valid_sources(item, known)
@@ -197,10 +208,10 @@ def validate(draft: dict, known: set[str]) -> tuple[dict, list[dict]]:
 
 def _text_fields(draft: dict):
     """Yield (key, text) for every prose field, with a key that set_text() understands."""
-    for key in ("title", "summary", "impact"):
+    for key in ("title", "summary"):
         if isinstance(draft.get(key), str):
             yield key, draft[key]
-    for key in ("root_cause", "detection"):
+    for key in ("impact", "root_cause", "detection"):
         if isinstance(draft.get(key), dict):
             yield f"{key}.text", draft[key].get("text", "")
     for key, field_name in (("timeline", "event"), ("contributing_factors", "text"),
@@ -265,17 +276,30 @@ def _cite(sources: list[str]) -> str:
     return " " + "".join(f"[{s}]" for s in sources) if sources else ""
 
 
+_ISO_TIME = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?(?:Z|[+-]00:?00)?$")
+
+
+def _short_times(times: list) -> list:
+    """Show log timestamps like chat times ('14:15:02', not '2026-10-20T14:15:02Z') when they share one UTC date."""
+    matches = [_ISO_TIME.match(t) if isinstance(t, str) else None for t in times]
+    if len({m.group(1) for m in matches if m}) != 1:
+        return times
+    return [m.group(2) if m else t for m, t in zip(matches, times)]
+
+
 def render_markdown(draft: dict, needs_review: list[dict], findings: list[dict], inp: Inputs) -> str:
     md = [f"# Postmortem: {draft.get('title', 'Untitled incident')}", ""]
     md += [f"**Severity:** {draft.get('severity', 'unknown')}  ", f"**Status:** Draft — generated by codelore, review before publishing", ""]
-    md += ["## Summary", draft.get("summary", ""), "", "## Impact", draft.get("impact", ""), ""]
+    imp = draft.get("impact") or {}
+    md += ["## Summary", draft.get("summary", ""), "", "## Impact", imp.get("text", "") + _cite(imp.get("sources", [])), ""]
     det = draft.get("detection") or {}
     if det:
         md += ["## Detection", det.get("text", "") + _cite(det.get("sources", [])), ""]
     md += ["## Timeline", "", "| Time | Event | Sources |", "|---|---|---|"]
-    for t in draft.get("timeline", []):
+    timeline = draft.get("timeline", [])
+    for t, when in zip(timeline, _short_times([t.get("time") for t in timeline])):
         event = str(t.get("event", "")).replace("|", "\\|")
-        md.append(f"| {t.get('time') or '—'} | {event} | {', '.join(t['sources'])} |")
+        md.append(f"| {when or '—'} | {event} | {', '.join(t['sources'])} |")
     rc = draft.get("root_cause") or {}
     md += ["", "## Root cause", rc.get("text", "") + _cite(rc.get("sources", [])), ""]
     for title, key in (("Contributing factors", "contributing_factors"), ("What went well", "what_went_well")):
@@ -295,7 +319,7 @@ def render_markdown(draft: dict, needs_review: list[dict], findings: list[dict],
     for key in ("timeline", "contributing_factors", "what_went_well", "action_items"):
         for item in draft.get(key) or []:
             cited.update(item.get("sources", []))
-    for key in ("root_cause", "detection"):
+    for key in ("impact", "root_cause", "detection"):
         cited.update((draft.get(key) or {}).get("sources", []))
     md += ["", "## Evidence"]
     for e in inp.evidence:

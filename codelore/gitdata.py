@@ -86,17 +86,83 @@ def _parse_commits(raw: str) -> list[Commit]:
     return commits
 
 
-def line_history(repo: str | Path, path: str, line: int, max_commits: int = 12) -> list[Commit]:
-    """Commits that shaped `line` of `path`, newest first (git log -L follows moves within the file)."""
-    raw = run_git(
-        repo,
-        "log",
-        f"-L{line},{line}:{path}",
-        "-s",
-        f"--max-count={max_commits}",
-        f"--format={_COMMIT_FMT}",
-    )
-    return _parse_commits(raw)
+_HUNK = re.compile(r"^@@ -\S+ \+(\d+)", re.MULTILINE)
+
+
+def line_history(repo: str | Path, path: str, line: int, max_commits: int = 12, max_hops: int = 3) -> list[Commit]:
+    """Commits that shaped `line` of `path`, newest first.
+
+    git log -L follows moves within one file. When the oldest commit it finds created the file
+    (a split or a rename), we find the same code in the files that commit removed or changed
+    and keep following the line there.
+    """
+    commits: list[Commit] = []
+    rev = "HEAD"
+    for _ in range(max_hops + 1):
+        raw = run_git(
+            repo,
+            "log",
+            f"-L{line},{line}:{path}",
+            f"--max-count={max_commits - len(commits)}",
+            f"--format={RS}{US.join(['%H', '%an', '%ae', '%aI', '%s', '%b'])}{US}",
+            rev,
+        )
+        found = _parse_commits(raw)
+        commits.extend(found)
+        if not found or len(commits) >= max_commits:
+            break
+        # The oldest record's hunk header gives the line's number in the commit that added it.
+        hunks = _HUNK.findall(raw.rsplit(RS, 1)[-1].split(US)[-1])
+        if not hunks:
+            break
+        origin = _origin_before_file_creation(repo, found[-1].sha, path, int(hunks[0]))
+        if origin is None:
+            break
+        rev, path, line = origin
+    return commits
+
+
+def _origin_before_file_creation(repo: str | Path, sha: str, path: str, line: int) -> tuple[str, str, int] | None:
+    """If `sha` created `path`, return (parent, old_path, old_line) for the code at `line`, else None.
+
+    The line is matched together with its neighbours, so short lines like a closing '\"\"\"' only
+    match where their surroundings match too.
+    """
+    try:
+        parent = run_git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^").strip()
+    except GitError:
+        return None  # root commit
+    try:
+        run_git(repo, "cat-file", "-e", f"{parent}:{path}")
+        return None  # the file already existed, so the line really started in this commit
+    except GitError:
+        pass
+    try:
+        new_lines = [s.strip() for s in run_git(repo, "show", f"{sha}:{path}").splitlines()]
+        sources = run_git(repo, "diff", "--name-only", "--diff-filter=DMR", "--no-renames", parent, sha).split()
+    except GitError:
+        return None
+    if not 1 <= line <= len(new_lines) or not new_lines[line - 1]:
+        return None
+    radius = 3
+    lo = max(0, line - 1 - radius)
+    context = new_lines[lo : line + radius]
+    target = line - 1 - lo
+    best: tuple[int, str, int] | None = None
+    for src in sources:
+        try:
+            old_lines = [s.strip() for s in run_git(repo, "show", f"{parent}:{src}").splitlines()]
+        except GitError:
+            continue
+        for i, text in enumerate(old_lines):
+            if text != context[target]:
+                continue
+            pairs = [(old_lines[i - target + k], want) for k, want in enumerate(context) if 0 <= i - target + k < len(old_lines)]
+            score = sum(old == want for old, want in pairs)
+            # Most of the neighbourhood must match; otherwise the code was rewritten, not moved.
+            if score >= max(2, 0.6 * len(pairs)) and (best is None or score > best[0]):
+                best = (score, src, i + 1)
+    return None if best is None else (parent, best[1], best[2])
 
 
 def read_lines(repo: str | Path, path: str, center: int, radius: int = 6) -> tuple[int, list[str]]:

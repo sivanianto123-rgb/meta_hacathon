@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 from codelore import gitdata, heatmap, postmortem, why
 from codelore.llm import LLMError, parse_json_reply, strip_unknown_citations
 
-from conftest import FakeModel
+from conftest import FakeModel, commit, git
 
 NOW = datetime(2026, 10, 26, tzinfo=timezone.utc)
 
@@ -23,6 +24,16 @@ def test_line_history_follows_the_line(repo):
     assert [c.subject for c in commits] == ["Fix double charge when payment webhook retries (#42)"]
     assert commits[0].pr_numbers == [42]
     assert "retries webhooks" in commits[0].body
+
+
+def test_line_history_follows_code_split_into_new_file(repo):
+    lines = (repo / "billing.py").read_text().splitlines()
+    git(repo, "rm", "-q", "billing.py")
+    # Moved with edits around it, so git sees a new file rather than a rename.
+    commit(repo, "payments/charge.py", "\n".join(["import gateway", "", *lines[:-3], *[f"def refund_{i}(order):\n    pass" for i in range(5)]]) + "\n",
+           "Split billing into payments package")
+    subjects = [c.subject for c in gitdata.line_history(repo, "payments/charge.py", 4)]
+    assert subjects == ["Split billing into payments package", "Fix double charge when payment webhook retries (#42)"]
 
 
 def test_remote_slug(repo):
@@ -111,10 +122,11 @@ def test_slack_export_parsing():
 DRAFT = {
     "title": "Checkout 500s",
     "summary": "Checkout failed for 18 minutes.",
-    "impact": "Customers could not pay.",
+    "impact": {"text": "Customers could not pay.", "sources": ["T1"]},
     "severity": "SEV2",
     "detection": {"text": "Reported in the incident channel.", "sources": ["T1"]},
     "timeline": [
+        {"time": "2026-10-20T13:56:02Z", "event": "Pool timeouts", "sources": ["L2"]},
         {"time": "14:02", "event": "500s reported", "sources": ["T1"]},
         {"time": "14:10", "event": "Invented event", "sources": ["T99"]},
     ],
@@ -130,13 +142,28 @@ def test_postmortem_moves_unsupported_items_and_rewrites_blame():
     model = FakeModel(DRAFT, rewrite)
     result = postmortem.write(postmortem.build_inputs(THREAD, LOGS), model)
     pm = result["postmortem"]
-    assert [t["event"] for t in pm["timeline"]] == ["500s reported"]
+    assert [t["event"] for t in pm["timeline"]] == ["Pool timeouts", "500s reported"]
     assert result["needs_review"][0]["event"] == "Invented event"
     assert pm["root_cause"]["text"].endswith("no check guarded pool size.")
     assert result["blame_findings"] == []
     assert result["blame_rewrites"] == 1
     md = result["markdown"]
     assert "## Needs review" in md and "**L2**" in md and "T99" not in md
+    assert "Customers could not pay. [T1]" in md
+    assert "| 13:56:02 | Pool timeouts |" in md
+
+
+def test_postmortem_impact_without_sources_needs_review():
+    draft = {**DRAFT, "impact": "Millions of users affected."}
+    result = postmortem.write(postmortem.build_inputs(THREAD, LOGS), FakeModel(draft, {"rewrites": {}}))
+    assert result["postmortem"]["impact"]["sources"] == []
+    assert {"section": "impact", "text": "Millions of users affected.", "sources": []} in result["needs_review"]
+
+
+def test_short_times_only_when_dates_agree():
+    assert postmortem._short_times(["2026-10-20T14:15:02Z", "14:02", None]) == ["14:15:02", "14:02", None]
+    mixed = ["2026-10-20T23:59:00Z", "2026-10-21T00:01:00Z"]
+    assert postmortem._short_times(mixed) == mixed
 
 
 def test_postmortem_keeps_warning_when_rewrite_fails():
@@ -176,3 +203,58 @@ def test_heatmap_kind_filter(repo):
     code_only = {f.path for f in heatmap.analyze(str(repo), since="2 years ago", now=NOW)}
     with_tests = {f.path for f in heatmap.analyze(str(repo), since="2 years ago", kinds=("code", "test"), now=NOW)}
     assert "tests/test_billing.py" not in code_only and "tests/test_billing.py" in with_tests
+
+
+def test_blame_check_allows_blameless_wording():
+    hits = lambda t: [m.group(0) for m in postmortem.BLAME_RE.finditer(t)]
+    assert hits("The team kept the review blameless and blame-free.") == []
+    assert hits("Ops is to blame; they blamed the DB.") == ["blame", "blamed"]
+
+
+# --- transcription ------------------------------------------------------------------------------
+
+class _Resp:
+    status_code = 200
+
+    def __init__(self, data):
+        self._data = data
+
+    def json(self):
+        return self._data
+
+
+def test_transcribe_posts_multipart_and_formats_turns(tmp_path, monkeypatch):
+    from codelore import llm
+
+    chunks = [tmp_path / "chunk000.wav", tmp_path / "chunk001.wav"]
+    for c in chunks:
+        c.write_bytes(b"RIFF")
+    monkeypatch.setattr(llm, "wav_chunks", lambda path, workdir: chunks)
+    calls = []
+
+    def fake_post(url, headers, files, timeout):
+        calls.append((url, json.loads(files["request"][1]), files["audio"][2]))
+        return _Resp({"transcript": "", "turns": [{"startMs": 65000, "speaker": "A", "transcript": " pool  is full "}]})
+
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    client = llm.MetaClient("key", "https://api.meta.ai/v1", "muse-spark-1.3", "muse-voice-transcribe-1.0")
+    text = client.transcribe(tmp_path / "call.mp3")
+    assert calls[0] == (
+        "https://api.meta.ai/v1/asr/transcribe",
+        {"model": "muse-voice-transcribe-1.0", "audioEncoding": "WAV", "mode": "DIARIZATION"},
+        "audio/wav",
+    )
+    assert text.splitlines() == [
+        "[01:05] Speaker A (part 1): pool is full",
+        f"[{(llm.CHUNK_SECONDS + 65) // 60:02d}:{(llm.CHUNK_SECONDS + 65) % 60:02d}] Speaker A (part 2): pool is full",
+    ]
+
+
+def test_voice_transcript_keeps_time_and_speaker():
+    inp = postmortem.build_inputs("", transcript="[01:05] Speaker A: Pool is full. Roll back.\nno label here")
+    voice = [(e.id, e.time, e.who, e.text) for e in inp.evidence]
+    assert voice == [
+        ("V1", "call +01:05", "Speaker A", "Pool is full."),
+        ("V2", "call +01:05", "Speaker A", "Roll back."),
+        ("V3", None, None, "no label here"),
+    ]

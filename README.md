@@ -60,10 +60,14 @@ tests/         pytest suite (runs offline with a fake model)
 
 ## Status
 
-- Git analysis, heat map, server, dashboard, VS Code extension: working; `pytest` passes (18 tests).
-- **Model calls not yet verified against the live API**: waiting on hackathon API credits. The
-  request format in `codelore/llm.py` follows the OpenAI-compatible convention and will be checked
-  against the Meta Model API docs.
+- Git analysis, heat map, server, dashboard, VS Code extension: working; `pytest` passes (24 tests).
+- **Verified against the live Meta Model API** (`muse-spark-1.3`, `muse-voice-transcribe-1.0`) on
+  Black's history and the bundled checkout-outage example: line stories, heat map notes,
+  postmortems and call transcription with speaker labels all work end to end.
+- "Why is this here?" follows a line back through file splits and renames (e.g. Black's 2021
+  `__init__.py` split), so stories reach the commits that actually wrote the code.
+- Call recordings: any format `ffmpeg` can read; codelore converts to 16 kHz mono WAV and splits
+  calls longer than the API's 10-minute limit.
 
 ## License
 
